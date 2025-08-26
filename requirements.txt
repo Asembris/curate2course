@@ -1,0 +1,12 @@
+crewai==0.121.0
+openai>=1.68.2,<1.76.0
+python-dotenv==1.0.1
+youtube-transcript-api==0.6.1
+wikipedia==1.4.0
+rank-bm25==0.2.2
+beautifulsoup4==4.12.3
+requests==2.32.3
+typer==0.12.3
+pytest==8.2.0
+rich==13.7.1
+PyYAML==6.0.1

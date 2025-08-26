@@ -1,0 +1,1 @@
+ CrewAI pipeline that turns open content into a structured micro-course (syllabus, notes, quizzes, manifest) with license checks and QA

@@ -1,0 +1,12 @@
+llm:
+  model: "gpt-4o-mini"
+  temperature: 0.25
+  max_tokens: 1800
+run:
+  process: "hierarchical"
+  dry_run: true
+  max_loops_per_stage: 2
+course:
+  weeks: 4
+  lessons_per_week: 2
+  allowed_licenses: ["CC-BY", "CC-BY-SA", "CC0", "Public Domain"]
