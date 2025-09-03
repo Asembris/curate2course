@@ -1,9 +1,16 @@
 from pathlib import Path
 import json
+from xml.sax.saxutils import escape
 from reportlab.lib.pagesizes import LETTER
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, ListFlowable, ListItem
 from reportlab.lib.units import inch
+from reportlab.lib.enums import TA_JUSTIFY
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.platypus import (
+    SimpleDocTemplate, Paragraph, Spacer,
+    ListFlowable, ListItem, PageBreak
+)
+from reportlab.lib import colors
+import re
 
 class ExportTools:
     def write_text(self, path: str, content: str):
@@ -16,79 +23,163 @@ class ExportTools:
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(json.dumps(obj, indent=2, ensure_ascii=False), encoding="utf-8")
 
-    # same function you already had (kept; signature is md_text, out_path!)
+    # ---------- helpers ----------
+    def _para(self, txt: str, style):
+        """
+        Build a safe ReportLab Paragraph by HTML-escaping and converting newlines to <br/>.
+        This prevents ReportLab 'paraparser: unclosed tag' errors on raw text.
+        """
+        if txt is None:
+            txt = ""
+        safe = escape(str(txt)).replace("\r", "").replace("\t", "    ").replace("\n", "<br/>")
+        return Paragraph(safe, style)
+
+    # ---------- Markdown(ish) -> PDF ----------
     def write_pdf_from_markdown(self, md_text: str, out_path: str, title: str | None = None):
         out = Path(out_path)
         out.parent.mkdir(parents=True, exist_ok=True)
+
         styles = getSampleStyleSheet()
-        doc = SimpleDocTemplate(str(out), pagesize=LETTER, leftMargin=54, rightMargin=54, topMargin=54, bottomMargin=54)
+        h1 = styles["Heading1"]; h1.spaceAfter = 8
+        h2 = styles["Heading2"]; h2.spaceAfter = 6
+        h3 = styles["Heading3"]; h3.spaceAfter = 4
+        body = styles["BodyText"]; body.spaceAfter = 4
+
+        doc = SimpleDocTemplate(
+            str(out),
+            pagesize=LETTER,
+            leftMargin=54, rightMargin=54, topMargin=54, bottomMargin=54,
+        )
         story = []
+
         if title:
-            story.append(Paragraph(title, styles["Title"]))
-            story.append(Spacer(1, 0.25 * inch))
+            story.append(self._para(title, styles["Title"]))
+            story.append(Spacer(1, 0.20 * inch))
 
-        lines = md_text.splitlines()
-        bullet_buf = []
+        # Simple markdown-ish parsing with safe paragraphs and real lists
+        lines = (md_text or "").splitlines()
+        list_buffer: list[str] = []
+        list_kind: str | None = None  # "bullet" | "number" | None
 
-        def flush_bullets():
-            nonlocal story, bullet_buf
-            if bullet_buf:
-                items = [ListItem(Paragraph(x, styles["BodyText"])) for x in bullet_buf]
-                story.append(ListFlowable(items, bulletType="bullet", start="bullet"))
-                story.append(Spacer(1, 0.10 * inch))
-                bullet_buf.clear()
+        import re
+        num_re = re.compile(r"^\s*\d+\.\s+")
 
-        for line in lines:
-            if line.startswith("# "):
-                flush_bullets(); story.append(Paragraph(line[2:].strip(), styles["Heading1"])); story.append(Spacer(1, 0.10 * inch))
-            elif line.startswith("## "):
-                flush_bullets(); story.append(Paragraph(line[3:].strip(), styles["Heading2"])); story.append(Spacer(1, 0.08 * inch))
-            elif line.startswith("### "):
-                flush_bullets(); story.append(Paragraph(line[4:].strip(), styles["Heading3"])); story.append(Spacer(1, 0.06 * inch))
-            elif line.strip().startswith("- "):
-                bullet_buf.append(line.strip()[2:].strip())
-            elif line.strip() == "":
-                flush_bullets(); story.append(Spacer(1, 0.08 * inch))
+        def flush_list():
+            nonlocal list_buffer, list_kind
+            if not list_buffer:
+                return
+            items = [ListItem(self._para(li, body)) for li in list_buffer]
+            lf_kwargs = {"leftIndent": 18}
+            if list_kind == "number":
+                lf_kwargs.update(dict(bulletType="1", start="1"))
             else:
-                flush_bullets(); story.append(Paragraph(line.strip(), styles["BodyText"])); story.append(Spacer(1, 0.04 * inch))
-        flush_bullets()
-        doc.build(story)
+                lf_kwargs.update(dict(bulletType="bullet"))
+            story.append(ListFlowable(items, **lf_kwargs))
+            story.append(Spacer(1, 0.08 * inch))
+            list_buffer = []
+            list_kind = None
 
-    # NEW: quiz JSON → pretty PDF
-    def write_quiz_pdf(self, quiz_obj: dict, out_path: str, title: str = "Quiz"):
-        out = Path(out_path)
-        out.parent.mkdir(parents=True, exist_ok=True)
-        styles = getSampleStyleSheet()
-        h1 = styles["Heading1"]
-        h2 = styles["Heading2"]
-        p  = styles["BodyText"]
-        code = ParagraphStyle('code', parent=p, fontName='Courier', leading=12)
-
-        doc = SimpleDocTemplate(str(out), pagesize=LETTER, leftMargin=54, rightMargin=54, topMargin=54, bottomMargin=54)
-        story = [Paragraph(title, h1), Spacer(1, 0.2*inch)]
-
-        items = quiz_obj.get("items", [])
-        for idx, q in enumerate(items, start=1):
-            if q.get("type", "").lower() == "short":
-                story.append(Paragraph(f"{idx}. (Short) {q.get('prompt','')}", h2))
-                story.append(Spacer(1, 0.1*inch))
-                story.append(Paragraph("Answer:", p))
-                story.append(Spacer(1, 0.25*inch))
-                story.append(Spacer(1, 0.25*inch))
+        for raw in lines:
+            line = (raw or "").rstrip()
+            if not line:
+                flush_list()
+                story.append(Spacer(1, 0.08 * inch))
                 continue
 
-            # MCQ
-            story.append(Paragraph(f"{idx}. {q.get('question','')}", h2))
-            choices = q.get("choices", [])
-            bullets = [ListItem(Paragraph(c, p)) for c in choices]
-            story.append(ListFlowable(bullets, bulletType='bullet', start='bullet'))
-            story.append(Spacer(1, 0.05*inch))
-            # teacher key (small)
-            ans = q.get("answer", "")
-            rationale = q.get("rationale", "")
-            story.append(Paragraph(f"<i>Answer:</i> {ans}", p))
-            if rationale:
-                story.append(Paragraph(f"<i>Rationale:</i> {rationale}", p))
-            story.append(Spacer(1, 0.15*inch))
+            if line.startswith("# "):
+                flush_list()
+                story.append(self._para(line[2:].strip(), h1))
+                continue
+            if line.startswith("## "):
+                flush_list()
+                story.append(self._para(line[3:].strip(), h2))
+                continue
+            if line.startswith("### "):
+                flush_list()
+                story.append(self._para(line[4:].strip(), h3))
+                continue
+
+            if line.lstrip().startswith("- "):
+                kind = "bullet"
+                txt = line.lstrip()[2:].strip()
+                if list_kind not in (None, kind):
+                    flush_list()
+                list_kind = kind
+                list_buffer.append(txt)
+                continue
+
+            if num_re.match(line):
+                kind = "number"
+                txt = num_re.sub("", line).strip()
+                if list_kind not in (None, kind):
+                    flush_list()
+                list_kind = kind
+                list_buffer.append(txt)
+                continue
+
+            # Normal paragraph
+            flush_list()
+            story.append(self._para(line, body))
+
+        flush_list()
+        doc.build(story)
+
+    # ---------- Quiz JSON -> nicely formatted PDF ----------
+    def quiz_json_to_pdf(self, quiz: dict, out_path: str, title: str | None = None):
+        out = Path(out_path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+
+        styles = getSampleStyleSheet()
+        h2 = styles["Heading2"]; h2.spaceAfter = 6
+        h3 = styles["Heading3"]; h3.spaceAfter = 4
+        body = styles["BodyText"]; body.spaceAfter = 4
+
+        doc = SimpleDocTemplate(
+            str(out),
+            pagesize=LETTER,
+            leftMargin=54, rightMargin=54, topMargin=54, bottomMargin=54,
+        )
+        story = []
+
+        if title:
+            story.append(self._para(title, styles["Title"]))
+            story.append(Spacer(1, 0.20 * inch))
+
+        items = (quiz or {}).get("items", []) or []
+        alpha = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+        for i, it in enumerate(items, 1):
+            qtype = str(it.get("type", "mcq")).lower()
+
+            if qtype in ("mcq", "multiple_choice", "choice"):
+                story.append(self._para(f"Q{i}. {it.get('question','')}", h3))
+
+                # Choices as a bulleted list (letters embedded in text)
+                choices = it.get("choices", []) or []
+                li = []
+                for idx, ch in enumerate(choices):
+                    label = f"{alpha[idx % 26]}) "
+                    li.append(ListItem(self._para(label + str(ch), body)))
+                if li:
+                    story.append(ListFlowable(li, bulletType="bullet", leftIndent=18))
+
+                story.append(self._para(f"Answer: {it.get('answer','')}", body))
+                if it.get("rationale"):
+                    story.append(self._para(f"Why: {it['rationale']}", body))
+
+                meta_bits = []
+                if it.get("bloom"):
+                    meta_bits.append(f"Bloom: {it['bloom']}")
+                if it.get("difficulty"):
+                    meta_bits.append(f"Difficulty: {it['difficulty']}")
+                if meta_bits:
+                    story.append(self._para(" | ".join(meta_bits), body))
+
+                story.append(Spacer(1, 0.15 * inch))
+
+            else:
+                # short-answer
+                story.append(self._para(f"Short-answer: {it.get('prompt','')}", h3))
+                story.append(Spacer(1, 0.15 * inch))
 
         doc.build(story)

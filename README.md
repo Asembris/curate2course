@@ -1,244 +1,159 @@
 # curate2course
 
-**Agentic E‑Learning Course Builder from Open Content**  
-Generate a multi‑week course (syllabus, lessons, reading list, and quizzes) from openly licensed sources using a hierarchical CrewAI workflow and a fast local Gradio UI.
+Agentic pipeline that turns a short topic prompt into a structured, multi‑week **OER** course: syllabus, lesson handouts, and quizzes — all exported as **PDFs** and JSON where appropriate. Built with **CrewAI** + **Gradio** + **ReportLab** + **Wikipedia**.
 
 ---
 
-## ✨ What you get
+## ✨ What it does
 
-- **Syllabus**: week-by-week plan derived from open sources
-- **Lessons**: Markdown notes with objectives, summaries, and attributions
-- **Quizzes**: MCQs + short prompts per lesson (JSON)
-- **Reading list**: track sources & licenses
-- **Manifest + QA**: machine-readable file inventory and license QA
-
-Output is written under `course/` so you can zip and share immediately.
+- **Topic Refiner (AI agent):** reformulates a short or vague user topic into a **clear course spec** (title, scope, global objectives, keywords, ordered subtopics).
+- **Curation + License gating:** searches open content (Wikipedia) and filters by **allowed licenses** (CC‑BY, CC‑BY‑SA, CC0, Public Domain).
+- **Syllabus generation:** multi‑week, lesson‑sized plan (configurable weeks × lessons/week).
+- **Lesson authoring:** for each lesson:
+  - Overview + **Key Concepts** + **Core Content split into 3 axes** (e.g., Foundations, Practice, Implications; or derived section names like *History*, *Principles*, *Applications*).
+  - **Self‑check** questions.
+  - **Attribution** lines compliant with CC‑BY‑SA.
+  - Exported to **Markdown** **and PDF** (proper bullet formatting).
+- **Quizzes per lesson:** 5 MCQs + 1 short answer. Validated and exported as **JSON** + a nicely formatted **PDF**.
+- **Manifest + QA:** a machine‑readable `course_manifest.json` and a minimal license QA report.
+- **Progress UI:** a live **progress bar** and current task text (e.g., “Authoring lessons (3/8)”).
 
 ---
 
-## 🏗️ Architecture & Workflow
-
-This project uses a **hierarchical crew** where a **Supervisor** routes work to specialist agents. We also add a **deterministic post‑builder** to guarantee files exist even when LLM calls are rate-limited.
-
-### High-level flow
+## 🧠 Agentic workflow (high level)
 
 ```mermaid
 flowchart TD
-    UI[Gradio UI] -->|topic, knobs| CrewEntry(run_pipeline)
-    subgraph Crew[Hierarchical CrewAI]
-      SUP[Supervisor]
-      CUR[Curator]
-      DES[Designer]
-      NOTES[Note Maker]
-      QZ[Assessor]
-      ASM[Assembler]
-      AUD[Auditor]
-    end
-    CrewEntry --> SUP
-    SUP -->|T_curate| CUR -->|curated sources| DES
-    SUP -->|T_syllabus| DES -->|weeks & lessons| NOTES
-    SUP -->|T_summarize| NOTES -->|lesson notes| QZ
-    SUP -->|T_quiz| QZ -->|quiz items| ASM
-    SUP -->|T_assemble| ASM -->|files & structure| AUD
-    SUP -->|T_qa| AUD --> QA[QA report]
-    QA --> Build[Deterministic Post-Build]
-    Build --> Files[course/*]
-    Files --> UI
+    U[User Topic] --> R[Topic Refiner Agent]
+    R -->|spec (title, scope, keywords, subtopics)| CUR[Curator Agent]
+    CUR -->|open sources + licenses OK| DES[Designer Agent]
+    DES -->|syllabus| NOTE[Note/Writer Agent]
+    NOTE -->|draft lesson text| ASM[Assembler Agent]
+    ASM -->|lesson md/pdf| QZ[Assessor (Quiz) Agent]
+    QZ -->|quiz json/pdf| AUD[Auditor Agent]
+    AUD -->|qa report| OUT[Manifest + Files]
 ```
 
-### Agents (in `src/agents.py`)
-
-- **Supervisor** — sets intent and routes tasks, provides consistency
-- **Curator** — finds candidate open-content sources for the topic
-- **Designer** — crafts the syllabus structure (weeks × lessons)
-- **Note Maker** — writes concise lesson notes with objectives
-- **Assessor** — generates quizzes (MCQs + short prompts)
-- **Assembler** — lays out folders, filenames, and metadata
-- **Auditor** — reviews licensing and structure for issues
-
-### Tools (in `src/tools/`)
-
-- **SearchTools** — Wikipedia/keyword seed search (local heuristic)
-- **LicenseTools** — lightweight allowlist check for strings
-- **TextTools** — cleaning/dedup helpers for lesson notes
-- **ExportTools** — filesystem I/O (write text/JSON safely)
-
-### Deterministic post‑build
-
-Even if an upstream agent partially succeeds, `_deterministic_build()` synthesizes a coherent **syllabus**, **lessons**, **quizzes**, **reading list**, **manifest**, and **qa_report** so the UI always shows downloadable artifacts. This is crucial for reliability during rapid iteration.
+**Deterministic build** (post‑crew step): we then run a predictable, auditable builder that uses the refined topic + curated sources to generate the final PDFs/JSON. This ensures consistent output even if LLM calls vary.
 
 ---
 
-## 📁 Project layout
+## 🗂️ Output structure
 
 ```
-curate2course/
-├─ src/
-│  ├─ main.py          # CLI + Gradio UI
-│  ├─ crew.py          # entrypoint to run pipeline
-│  ├─ workflow.py      # agent/task wiring & deterministic build
-│  ├─ agents.py        # CrewAI agent definitions
-│  ├─ tasks.py         # CrewAI task templates
-│  ├─ tools/
-│  │  ├─ search_tools.py
-│  │  ├─ license_tools.py
-│  │  ├─ text_tools.py
-│  │  └─ export_tools.py
-│  └─ config.py        # model/provider configuration
-├─ .env.example        # sample environment variables
-├─ requirements.txt
-└─ README.md
+course/
+  syllabus.md
+  syllabus.pdf
+  syllabus.json
+  reading_list.md
+  reading_list.pdf
+  lessons/
+    week_1/lesson_1.md
+    week_1/lesson_1.pdf
+    ...
+  quizzes/
+    week_1_lesson_1.json
+    week_1_lesson_1.pdf
+    ...
+  course_manifest.json
+  qa_report.json
 ```
 
-> Artifacts created after a run are placed under `course/`:  
-> `syllabus.md`, `syllabus.json`, `reading_list.md`, `lessons/week_i/lesson_j.md`, `quizzes/*.json`, `course_manifest.json`, `qa_report.json`.
+### Lesson PDF layout
+- **Objectives** (bulleted, clean layout)
+- **Overview** (short summary)
+- **Key Concepts** (bulleted, up to 5 lines)
+- **Core Content** split into **three axes** (sectioned H3 blocks)
+- **Self‑Check** (numbered list)
+- **Attribution**
 
 ---
 
-## 🔧 Requirements
-
-- Python 3.10+
-- An OpenAI API key (only paid dependency you need)
-- Windows, macOS, or Linux
-
-Install dependencies:
+## 🔧 Install
 
 ```bash
+# Python 3.10+ recommended
 python -m venv venv
-# Windows
-venv\Scripts\activate
-# macOS/Linux
-# source venv/bin/activate
+venv\Scripts\activate  # (Windows)  or  source venv/bin/activate (macOS/Linux)
 
 pip install -U pip wheel
 pip install -r requirements.txt
+# or the key libs:
+pip install crewai gradio reportlab wikipedia
 ```
 
-
+> **Note on Gradio versions:** we’ve seen a `gradio_client` JSON‑schema parsing error (`TypeError: argument of type 'bool' is not iterable`) with some combos. This repo includes a tiny **compatibility shim** that safely handles boolean schemas at runtime so the UI can boot reliably.
 
 ---
 
-## 🔐 Environment variables
+## ▶️ Usage
 
-Create `.env` in the project root :
-
-```dotenv
-OPENAI_API_KEY=sk-your-key
-# Optional overrides
-OPENAI_MODEL=gpt-4o-mini
-OPENAI_TEMPERATURE=0.2
-```
-
----
-
-## 🚀 Usage
-
-### 1) Run the Gradio app (recommended for testing)
-
-```bash
-python -m src.main ui
-```
-
-Open the local URL shown in the terminal (e.g., http://127.0.0.1:7860).
-
-- Set **Topic**, **Weeks**, **Lessons per week**, **Min resources per lesson**
-- Choose license allowlist (default: CC‑BY, CC‑BY‑SA, CC0, Public Domain)
-- Click **Build Course**
-- Download artifacts from the **Key files / Lessons / Quizzes** tabs
-
-### 2) CLI build
-
+### CLI
 ```bash
 python -m src.main build \
-  --topic "Object-Oriented Programming in C++ (Classes, Objects, Encapsulation)" \
+  --topic "Finance" \
   --weeks 4 \
   --lessons-per-week 2 \
   --min-resources 2 \
   --license-allowlist "CC-BY,CC-BY-SA,CC0,Public Domain"
 ```
 
-This writes the same `course/` folder without the UI.
+### UI
+```bash
+python -m src.main ui
+```
+- Enter **Topic** (short prompt is OK).
+- Choose **weeks**, **lessons per week**, **min resources**, and **allowed licenses**.
+- Click **Build Course**. Watch the **progress bar** and **status** text.
+- Download PDFs from the **Key files / Lessons / Quizzes** tabs.
 
 ---
 
 ## ⚙️ Configuration
 
-Models and temperature are configured in `src/config.py`. By default:
-
-- Uses the OpenAI SDK v1, model name from `OPENAI_MODEL` (fallback sensible default)
-- Temperature kept low for **determinism** in structural tasks
-- You can point CrewAI to different providers if you prefer
+- `configs/settings.yaml` — tune model choices, temperatures, etc. (optional).
+- **Allowed licenses** can be set in the UI or via CLI flag `--license-allowlist`.
 
 ---
 
-## 🧪 Output schema
+## 🏗️ How it works (files)
 
-### `course_manifest.json`
-```json
-{
-  "topic": "…",
-  "weeks": 4,
-  "lessons_per_week": 2,
-  "lessons": ["lessons/week_1/lesson_1.md", "…"],
-  "quizzes": ["quizzes/week_1_lesson_1.json", "…"],
-  "syllabus_md": "course/syllabus.md",
-  "syllabus_json": "course/syllabus.json",
-  "reading_list": "course/reading_list.md",
-  "licenses": ["CC-BY", "CC-BY-SA", "CC0", "Public Domain"]
-}
-```
-
-### `quizzes/*.json`
-```json
-{
-  "items": [
-    {
-      "type": "mcq",
-      "question": "…?",
-      "choices": ["A", "B", "C", "D"],
-      "answer": 0,
-      "rationale": "…",
-      "bloom": "understand",
-      "difficulty": "easy"
-    },
-    { "type": "short", "prompt": "…" }
-  ]
-}
-```
+- `src/agents.py` — includes the **Topic Refiner** plus supervisor/curator/designer/note_maker/assessor/assembler/auditor.
+- `src/tasks.py` — task prompts (incl. `t_refine`, the JSON‑strict course spec).
+- `src/workflow.py` — the orchestration:
+  - Runs `t_refine` first and uses its **keywords + subtopics** to guide curation.
+  - Executes crew agents (hierarchical) then a **deterministic build** that writes PDF/JSON.
+  - Ensures **unique lesson content** and **proper PDF formatting** (bullets, sections).
+- `src/tools/export_tools.py` — Markdown→PDF + Quiz JSON→PDF formatting with ReportLab.
+- `src/main.py` — CLI & Gradio UI. Includes a small **gradio_client** monkey‑patch to tolerate boolean JSON schemas that break API inspection on some installs.
 
 ---
 
+## 🧪 Deterministic vs. Agentic
 
-
-## 🛠️ Development tips
-
-- Agent prompts live in `src/tasks.py` and `src/agents.py`. Tighten task guidelines to change tone/length.
-- For **domain-specific** courses, add custom seeders in `SearchTools`.
-
-Run unit checks for helper utilities:
-```bash
-pytest -q
-```
-
-
-
-## 🗺️ Roadmap
-
-- Richer source discovery (OpenAlex/Core/Wikidata integration)
-- Rubric‑aware quiz generator and alignment to objectives
-- Optional PDF/HTML export and packaging
-- Human‑in‑the‑loop edits from the UI, then regenerate quizzes
+- **Agentic** (CrewAI): creative planning, decomposition, assessments.
+- **Deterministic**: reproducible file writing, formatting, license gating, and stable structure.
+- Benefit: **reliability** for artifacts + **intelligence** for planning.
 
 ---
 
-## 📄 License
+## 🚧 Known limits & ideas
 
-This repo’s code is under the MIT License. The **generated course content** inherits licenses from the sources you choose. Always verify `reading_list.md` and `qa_report.json` before publishing.
+- Sources are currently **Wikipedia‑first** for OER compliance; add other OER catalogs later.
+- PDFs are plain but clean; you can add themes/cover images easily in `export_tools.py`.
+- Add an optional **LLM “sectionizer”** to convert raw text into MOOC‑style subsections (video + reading + activity) for an even richer layout.
 
 ---
 
-## 🙏 Acknowledgements
+## 📝 License
 
-- Built with **CrewAI**, **Gradio**, and the **OpenAI** Python SDK.
-- Thanks to the maintainers of open content platforms that make this possible.
+This codebase is provided under the MIT License. Generated content respects source licenses (e.g., CC‑BY‑SA). Always keep attributions in the lesson PDFs.
+
+---
+
+## 🙌 Credits
+
+- CrewAI (agent orchestration)
+- Gradio (UI)
+- ReportLab (PDFs)
+- Wikipedia (open content / CC‑BY‑SA)

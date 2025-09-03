@@ -94,3 +94,19 @@ def auditor():
         ),
         **_base()
     )
+
+def topic_refiner():
+    return Agent(
+        role="Topic Refiner",
+        goal=(
+            "Clarify a short user prompt into a precise, teachable course topic and a "
+            "coherent set of subtopics suitable for a multi-week OER course."
+        ),
+        backstory=(
+            "You are an instructional designer and subject librarian. You scope topics, "
+            "remove ambiguity, and decompose them into an ordered set of subtopics and "
+            "keywords that are easy to search and teach."
+        ),
+        allow_delegation=False,
+        verbose=False,
+    )
