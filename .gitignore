@@ -8,3 +8,5 @@ venv/
 .vscode/
 .idea/
 course/
+lessons/
+quizzes/
