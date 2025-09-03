@@ -24,14 +24,14 @@ Agentic pipeline that turns a short topic prompt into a structured, multi‑week
 
 ```mermaid
 flowchart TD
-    U[User Topic] --> R[Topic Refiner Agent]
-    R -->|spec (title, scope, keywords, subtopics)| CUR[Curator Agent]
-    CUR -->|open sources + licenses OK| DES[Designer Agent]
-    DES -->|syllabus| NOTE[Note/Writer Agent]
-    NOTE -->|draft lesson text| ASM[Assembler Agent]
-    ASM -->|lesson md/pdf| QZ[Assessor (Quiz) Agent]
-    QZ -->|quiz json/pdf| AUD[Auditor Agent]
-    AUD -->|qa report| OUT[Manifest + Files]
+  U[User topic] --> R[Topic Refiner]
+  R -->|spec: title / scope / keywords / subtopics| CUR[Curator]
+  CUR -->|open OER + license OK| DES[Designer]
+  DES -->|syllabus| NOTE[Note Writer]
+  NOTE -->|draft lesson text| ASM[Assembler]
+  ASM -->|lesson md + pdf| QZ[Assessor (Quiz)]
+  QZ -->|quiz json + pdf| AUD[Auditor]
+  AUD -->|qa report| OUT[Manifest & Files]
 ```
 
 **Deterministic build** (post‑crew step): we then run a predictable, auditable builder that uses the refined topic + curated sources to generate the final PDFs/JSON. This ensures consistent output even if LLM calls vary.
